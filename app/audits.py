@@ -1,8 +1,4 @@
-"""
-audits.py -- the audit / log manager. Append-only JSONL file: one line per
-money-related action, whether it was allowed or blocked. Nothing touches
-Razorpay without a line being written first (see orchestrator.py).
-"""
+
 
 from __future__ import annotations
 import json

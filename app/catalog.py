@@ -1,7 +1,4 @@
-"""
-catalog.py -- stand-in for "the merchant's database, exposed via an API
-layer". Prices are in paise (Razorpay's smallest INR unit).
-"""
+
 
 from __future__ import annotations
 from typing import Optional

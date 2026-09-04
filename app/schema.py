@@ -1,10 +1,4 @@
-"""
-schema.py -- the single source of truth for what every request, decision,
-and log entry looks like. Guardrails, the policy engine, the orchestrator,
-and the API layer all import these models instead of passing raw dicts
-around, so a malformed request is rejected before it reaches any business
-logic at all.
-"""
+
 
 from __future__ import annotations
 from typing import Optional, Literal, Any

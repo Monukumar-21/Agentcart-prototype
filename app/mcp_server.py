@@ -1,12 +1,4 @@
-"""
-mcp_server.py -- exposes the same orchestrator tools over MCP (stdio), so
-an actual AI agent (Claude Desktop, Claude Code, etc.) can call them
-directly instead of going through the REST API. Run with:
 
-    python -m app.mcp_server
-
-or add it to an MCP client config pointing at this file.
-"""
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,7 +8,7 @@ from app import orchestrator
 
 mcp = FastMCP("agentcart")
 
-ACTOR = "mcp-agent"  # in a real deployment, derive this from the caller's authenticated identity
+ACTOR = "mcp-agent" 
 
 
 @mcp.tool()

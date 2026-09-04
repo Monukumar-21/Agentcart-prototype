@@ -1,9 +1,4 @@
-"""
-retry.py -- the error and retry tracing layer. Wraps calls out to Razorpay
-(or any flaky external dependency) with bounded retries and exponential
-backoff, and writes a trace line to the audit log for every retry -- so a
-transient failure that self-heals is still visible, not silently hidden.
-"""
+
 
 from __future__ import annotations
 import os
@@ -28,10 +23,10 @@ def call_with_retry(fn: Callable[[], T], *, tool: str, actor: str, params: dict)
     """Call fn() with bounded retries. Logs each retry attempt as an audit
     trace, then raises RazorpayCallFailed if every attempt fails."""
     last_exc: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 2):  # +1 for the initial try
+    for attempt in range(1, MAX_RETRIES + 2):  
         try:
             return fn()
-        except Exception as exc:  # noqa: BLE001 -- intentionally broad, this wraps any Razorpay error
+        except Exception as exc: 
             last_exc = exc
             if attempt <= MAX_RETRIES:
                 audit_logger.log(

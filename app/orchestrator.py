@@ -1,16 +1,3 @@
-"""
-orchestrator.py -- the AI-agent-facing wrapper that automates the full
-merchant workflow. Every tool follows the same shape:
-
-    guardrails.check_*()  -> reject malformed/unsafe requests
-    policy_engine.evaluate() -> reject requests outside bounds
-    state_manager           -> track the transaction's lifecycle
-    retry.call_with_retry()  -> call Razorpay with bounded retries
-    audits.log()             -> write exactly one line, allowed or blocked
-
-This is the module both the REST API (main.py) and the MCP server
-(mcp_server.py) call into -- neither talks to Razorpay directly.
-"""
 
 from __future__ import annotations
 import time
@@ -126,9 +113,6 @@ def refund_payment(actor: str, payment_id: str, amount_paise: int) -> ToolResult
             tool="refund_payment", actor=actor, params={"payment_id": payment_id, "amount_paise": amount_paise},
         )
     except RazorpayCallFailed as exc:
-        # Graceful failure: the transaction (if we're tracking it) is
-        # suspended rather than silently retried forever or left in an
-        # ambiguous state -- a human needs to look at it.
         state_manager.suspend(payment_id, f"refund failed after retries: {exc}")
         entry = audit_logger.log(
             actor=actor, tool="refund_payment", params={"payment_id": payment_id, "amount_paise": amount_paise},
@@ -152,7 +136,7 @@ def get_state_snapshot() -> list[dict[str, Any]]:
     return [t.model_dump() for t in state_manager.snapshot()]
 
 def get_campaign_stats(actor: str = ACTOR_DEFAULT) -> ToolResult:
-    # Simulated dynamic stats showing the value of agent-led growth
+    
     stats = {
         "baseline_conversion_rate": "2.4%",
         "agent_assisted_conversion_rate": "8.7%",

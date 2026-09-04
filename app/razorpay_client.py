@@ -1,10 +1,4 @@
-"""
-razorpay_client.py -- thin wrapper around the Razorpay Python SDK, with a
-mock fallback so the whole app runs and is fully testable with zero
-Razorpay signup. Set MOCK_MODE=false and real test-mode keys in .env to
-switch to live Razorpay test-mode calls -- no other code changes needed,
-since the mock mirrors the real client's method shapes.
-"""
+
 
 from __future__ import annotations
 import os
@@ -67,7 +61,7 @@ class MockClient:
 def _build_client():
     if MOCK_MODE:
         return MockClient()
-    import razorpay  # imported lazily so mock mode never requires the real SDK config
+    import razorpay  
 
     client = razorpay.Client(auth=(os.environ["RAZORPAY_KEY_ID"], os.environ["RAZORPAY_KEY_SECRET"]))
     return client

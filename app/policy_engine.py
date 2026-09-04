@@ -1,9 +1,4 @@
-"""
-policy_engine.py -- the single choke point that decides whether a money
-action is *allowed to execute*, given a well-formed request that already
-passed guardrails. This is where "bounded" lives: spending limits and rate
-limits, in one place, configurable from .env.
-"""
+
 
 from __future__ import annotations
 import os

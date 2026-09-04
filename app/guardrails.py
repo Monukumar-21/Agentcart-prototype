@@ -1,22 +1,14 @@
-"""
-guardrails.py -- the first line of defense, before anything reaches the
-policy engine. Guardrails answer "is this request even well-formed and
-sane", not "is this actor allowed to spend this much" (that's the policy
-engine's job). Keeping them separate means each has one job and one place
-to change: tighten spending rules in policy_engine.py, tighten what counts
-as a sane request here.
-"""
+
 
 from __future__ import annotations
 from app.schema import GuardrailResult
 from app import catalog
 
-# Actors that are hard-blocked regardless of policy (e.g. known-bad agents
-# flagged by a merchant). Empty by default; a merchant would populate this.
+
 BLOCKED_ACTORS: set[str] = set()
 
 MAX_QTY_PER_ORDER = 10
-MAX_REFUND_PAISE_ABSOLUTE = 10_000_00  # ₹10,000 -- a hard ceiling no policy override can exceed
+MAX_REFUND_PAISE_ABSOLUTE = 10_000_00  
 
 
 def check_actor(actor: str) -> GuardrailResult:

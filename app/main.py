@@ -1,15 +1,11 @@
-"""
-main.py -- REST API + dashboard front door. All business logic lives in
-orchestrator.py; this file only translates HTTP <-> orchestrator calls and
-renders the dashboard template.
-"""
+
 
 from __future__ import annotations
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv()  # noqa: E402  -- must run before other app modules read env vars
+load_dotenv()  
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
