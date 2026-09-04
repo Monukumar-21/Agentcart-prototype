@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Pay Order</title>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; color: #222; text-align: center; }
+  .result { margin-top: 20px; font-size: 16px; white-space: pre-wrap; background: #fafafa; padding: 16px; border-radius: 6px; display: none; }
+  button { padding: 10px 20px; border: none; border-radius: 6px; background: #222; color: #fff; cursor: pointer; font-size: 16px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<h1>Complete Payment</h1>
+<p>Order ID: {{ order_id }}</p>
+<p>Amount: &#8377;{{ "%.2f"|format(amount_paise / 100) }}</p>
+
+<button id="pay-btn" onclick="openRazorpay()">Pay Now</button>
+
+<div id="result" class="result"></div>
+
+<script>
+const razorpayKeyId = "{{ razorpay_key_id }}";
+const isMockMode = {{ "true" if mock_mode else "false" }};
+const orderId = "{{ order_id }}";
+const amountPaise = {{ amount_paise }};
+const actor = "{{ actor }}";
+
+async function postJSON(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { status: res.status, json: await res.json() };
+}
+
+function openRazorpay() {
+  if (isMockMode || !razorpayKeyId) {
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('result').textContent = "Running in mock mode. Real Razorpay modal is disabled. Payment marked as successful.";
+    postJSON('/checkout/verify', {
+      actor: actor,
+      order_id: orderId,
+      payment_id: "pay_mock_123",
+      signature: "mock_signature"
+    }).then(() => {
+        document.getElementById('result').textContent += "\n\nPayment verified successfully. You can close this window.";
+        document.getElementById('pay-btn').style.display = 'none';
+    });
+    return;
+  }
+
+  const options = {
+    key: razorpayKeyId,
+    amount: amountPaise,
+    currency: "INR",
+    name: "AgentCart",
+    description: "Checkout Payment",
+    order_id: orderId,
+    handler: async function (response) {
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('result').textContent = 'Verifying payment...';
+      const verifyBody = {
+        actor: actor,
+        order_id: response.razorpay_order_id,
+        payment_id: response.razorpay_payment_id,
+        signature: response.razorpay_signature
+      };
+      const verifyRes = await postJSON('/checkout/verify', verifyBody);
+      if (verifyRes.status === 200) {
+        document.getElementById('result').textContent = 'Payment successful! You can close this window and return to chat.';
+        document.getElementById('pay-btn').style.display = 'none';
+      } else {
+        document.getElementById('result').textContent = 'Payment verification failed: ' + JSON.stringify(verifyRes.json);
+      }
+    },
+    theme: { color: "#222" }
+  };
+  const rzp = new Razorpay(options);
+  rzp.on('payment.failed', function (response){
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('result').textContent = 'Payment Failed: ' + JSON.stringify(response.error, null, 2);
+  });
+  rzp.open();
+}
+
+window.onload = openRazorpay;
+</script>
+</body>
+</html>

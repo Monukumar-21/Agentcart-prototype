@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>AgentCart prototype dashboard</title>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin-top: 32px; }
+  .badge { display:inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+  .allowed { background: #e6f4ea; color: #1b7a3d; }
+  .blocked { background: #fdecea; color: #b3261e; }
+  .suspended { background: #fff4e5; color: #a15c00; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  code { background: #f5f5f5; padding: 1px 5px; border-radius: 4px; }
+  .panel { border: 1px solid #eee; border-radius: 10px; padding: 16px; margin-top: 12px; }
+  .panel label { display:block; font-size: 12px; color: #555; margin-top: 8px; }
+  .panel input { width: 100%; padding: 6px; margin-top: 2px; box-sizing: border-box; }
+  .panel button { margin-top: 12px; padding: 8px 14px; border: none; border-radius: 6px; background: #222; color: #fff; cursor: pointer; }
+  .row { display: flex; gap: 16px; }
+  .row > div { flex: 1; }
+  .result { margin-top: 10px; font-size: 12px; white-space: pre-wrap; background: #fafafa; padding: 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>AgentCart prototype {{ "(mock mode)" if mock_mode else "(live Razorpay test mode)" }}</h1>
+<p>Guardrails &rarr; policy engine &rarr; state manager &rarr; Razorpay (with retry) &rarr; audit trail, all wired through <code>app/orchestrator.py</code>.</p>
+
+<h2>Catalog</h2>
+<table>
+<thead><tr><th>SKU</th><th>Name</th><th>Price</th><th>Stock</th></tr></thead>
+<tbody>
+{% for item in catalog %}
+<tr><td><code>{{ item.sku }}</code></td><td>{{ item.name }}</td><td>&#8377;{{ "%.2f"|format(item.price_paise / 100) }}</td><td>{{ item.stock }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Try it</h2>
+<div class="row">
+  <div class="panel">
+    <strong>Checkout</strong>
+    <label>Actor</label><input id="co-actor" value="dashboard-tester" />
+    <label>SKU</label><input id="co-sku" value="PHONE-CASE-01" />
+    <label>Qty</label><input id="co-qty" value="1" type="number" min="1" />
+    <button onclick="doCheckout()">Create order</button>
+    <div id="co-result" class="result"></div>
+  </div>
+  <div class="panel">
+    <strong>Refund</strong>
+    <label>Actor</label><input id="rf-actor" value="dashboard-tester" />
+    <label>Payment ID</label><input id="rf-payment" value="pay_fake_demo" />
+    <label>Amount (paise)</label><input id="rf-amount" value="500000" type="number" />
+    <button onclick="doRefund()">Attempt refund</button>
+    <div id="rf-result" class="result"></div>
+  </div>
+</div>
+<p style="font-size:12px;color:#777">Tip: try a refund amount above ₹2,000 (200000 paise) to see it get blocked, logged, and explained below.</p>
+
+<h2>Audit trail</h2>
+<table id="audit"><thead><tr><th>Time</th><th>Actor</th><th>Tool</th><th>Decision</th><th>Reason</th></tr></thead><tbody></tbody></table>
+
+<h2>Transaction states</h2>
+<table id="state"><thead><tr><th>Order ID</th><th>SKU</th><th>Status</th><th>Amount</th></tr></thead><tbody></tbody></table>
+
+<script>
+const razorpayKeyId = "{{ razorpay_key_id }}";
+const isMockMode = {{ "true" if mock_mode else "false" }};
+
+async function postJSON(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { status: res.status, json: await res.json() };
+}
+
+async function doCheckout() {
+  const actor = document.getElementById('co-actor').value;
+  const body = { actor: actor, sku: document.getElementById('co-sku').value, qty: Number(document.getElementById('co-qty').value) };
+  const { status, json } = await postJSON('/checkout/order', body);
+  document.getElementById('co-result').textContent = `[${status}] ` + JSON.stringify(json, null, 2);
+  
+  if (status === 200 && json.data && json.data.order && !isMockMode && razorpayKeyId) {
+    const order = json.data.order;
+    const options = {
+      key: razorpayKeyId,
+      amount: order.amount,
+      currency: order.currency,
+      name: "AgentCart Test",
+      description: "Test Transaction",
+      order_id: order.id,
+      handler: async function (response) {
+        const verifyBody = {
+          actor: actor,
+          order_id: response.razorpay_order_id,
+          payment_id: response.razorpay_payment_id,
+          signature: response.razorpay_signature
+        };
+        const verifyRes = await postJSON('/checkout/verify', verifyBody);
+        document.getElementById('co-result').textContent += '\n\nVerification: ' + JSON.stringify(verifyRes.json, null, 2);
+        loadAll();
+      },
+      theme: { color: "#222" }
+    };
+    const rzp = new Razorpay(options);
+    rzp.on('payment.failed', function (response){
+      document.getElementById('co-result').textContent += '\n\nPayment Failed: ' + JSON.stringify(response.error, null, 2);
+    });
+    rzp.open();
+  }
+  
+  loadAll();
+}
+
+async function doRefund() {
+  const body = { actor: document.getElementById('rf-actor').value, payment_id: document.getElementById('rf-payment').value, amount_paise: Number(document.getElementById('rf-amount').value) };
+  const { status, json } = await postJSON('/refund', body);
+  document.getElementById('rf-result').textContent = `[${status}] ` + JSON.stringify(json, null, 2);
+  loadAll();
+}
+
+async function loadAudit() {
+  const res = await fetch('/audit');
+  const rows = await res.json();
+  document.querySelector('#audit tbody').innerHTML = rows.map(r => `<tr>
+    <td>${new Date(r.ts).toLocaleTimeString()}</td>
+    <td>${r.actor}</td>
+    <td>${r.tool}</td>
+    <td><span class="badge ${r.decision}">${r.decision}</span></td>
+    <td>${r.reason}</td>
+  </tr>`).join('');
+}
+
+async function loadState() {
+  const res = await fetch('/state');
+  const rows = await res.json();
+  document.querySelector('#state tbody').innerHTML = rows.map(r => `<tr>
+    <td><code>${r.order_id}</code></td>
+    <td>${r.sku || ''}</td>
+    <td><span class="badge ${r.status === 'suspended' ? 'suspended' : (r.status === 'failed' ? 'blocked' : 'allowed')}">${r.status}</span></td>
+    <td>${r.amount_paise ? '₹' + (r.amount_paise/100).toFixed(2) : ''}</td>
+  </tr>`).join('');
+}
+
+function loadAll() { loadAudit(); loadState(); }
+loadAll();
+setInterval(loadAll, 3000);
+</script>
+</body>
+</html>
