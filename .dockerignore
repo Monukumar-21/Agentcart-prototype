@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+.venv
+data/audit.log
+.DS_Store
+.git/
+.gitignore
+.agents/
+.gemini/

@@ -133,6 +133,28 @@ Then just chat: *"Search for earbuds under ₹2000"* or *"Add a phone case to my
 
 The checkout tool has a built-in upsell agent — it'll automatically suggest add-ons with discounts before completing the order.
 
+## Docker
+
+Build and run with Docker:
+
+```bash
+# Build the image
+docker build -t agentcart .
+
+# Run in mock mode (no Razorpay keys needed)
+docker run -d -p 8000:8000 --name agentcart agentcart
+
+# Run with your Razorpay keys (live mode)
+docker run -d -p 8000:8000 --env-file .env --name agentcart agentcart
+```
+
+Open `http://localhost:8000` — works exactly the same as the local setup.
+
+To stop and remove:
+```bash
+docker stop agentcart && docker rm agentcart
+```
+
 ## Known limitations
 
 - Everything is in-memory (catalog, carts, transactions) — resets on restart
