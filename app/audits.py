@@ -1,4 +1,4 @@
-
+"""Append-only JSONL audit log — every action gets recorded here."""
 
 from __future__ import annotations
 import json
@@ -50,7 +50,7 @@ class AuditLogger:
             raw = self.path.read_text().strip()
         if not raw:
             return []
-        entries = [AuditEntry.model_validate_json(line) for line in raw.splitlines()]
+        entries = [AuditEntry.model_validate_json(line) for line in raw.splitlines() if line.strip()]
         return list(reversed(entries))  # newest first
 
     def stats(self) -> dict[str, int]:

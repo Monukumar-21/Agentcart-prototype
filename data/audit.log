@@ -1,3 +1,0 @@
-{"ts":"2026-09-04T04:09:28.476351+00:00","actor":"mcp-agent","tool":"get_catalog","params":{},"decision":"allowed","reason":"Read-only","result":null}
-{"ts":"2026-09-04T04:10:08.829394+00:00","actor":"mcp-agent","tool":"create_checkout_order","params":{"sku":"PHONE-CASE-01","qty":1,"amount_paise":49900},"decision":"allowed","reason":"Within policy bounds","result":{"order_id":"order_TXp4o5STewtVAe","status":"created"}}
-{"ts":"2026-09-04T04:10:27.874028+00:00","actor":"dashboard-tester","tool":"create_checkout_order","params":{"sku":"PHONE-CASE-01","qty":1,"amount_paise":49900},"decision":"allowed","reason":"Within policy bounds","result":{"order_id":"order_TXp58sRKGmFAzp","status":"created"}}

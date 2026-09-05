@@ -1,165 +1,140 @@
-# AgentCart prototype
+# AgentCart
 
-A working, testable version of the scoped AgentCart architecture
+An AI-powered shopping cart prototype with built-in guardrails, recommendations, and upsell logic.
 
-- **`app/main.py`** — a FastAPI REST API + a server-rendered dashboard
-  (Jinja2 + a little vanilla JS to poll live data) you can click through
-  in a browser.
-- **`app/mcp_server.py`** — an MCP server over stdio, so an actual AI
-  agent (Claude Desktop, Claude Code, etc.) can call the same tools
-  directly.
+Two entry points, same backend:
 
-Both call into the same orchestrator — so whichever front door is used,
-the same guardrails, bounds, and audit log apply.
+- **`app/main.py`** — FastAPI REST API + web dashboard you can use from a browser
+- **`app/mcp_server.py`** — MCP server (stdio) for AI agents like Claude Desktop
 
-## Architecture -> files
+Both go through the same orchestrator, so the same guardrails, spending limits, and audit trail apply regardless of how the system is accessed.
 
-| Diagram concept | File |
+## What it does
+
+- **Product search** over ~8,700 Amazon products using TF-IDF similarity matching
+- **Smart upsell agent** that suggests complementary products at checkout with tiered discounts (10-20% based on addon/cart price ratio)
+- **Content-based recommendations** via cosine similarity
+- **Cart + checkout flow** with Razorpay integration (mock or live)
+- **Guardrails everywhere** — spending limits, rate limiting, stock checks, actor blocklists
+- **Full audit trail** — every action (allowed or blocked) gets logged to `data/audit.log`
+
+## Architecture
+
+| What it does | Where it lives |
 |---|---|
-| Schema | `app/schema.py` — every request/decision/log shape, as Pydantic models |
-| Guardrails | `app/guardrails.py` — is this request well-formed and sane |
-| Policy engine | `app/policy_engine.py` — is this actor allowed to spend this much, this often |
-| State manager | `app/state_manager.py` — transaction lifecycle + suspend-in-place |
-| Error & retry tracing | `app/retry.py` — bounded retries, logged as audit traces |
-| Audits / log manager | `app/audits.py` — append-only JSONL audit log |
-| Orchestrator ("AI agent wrapper") | `app/orchestrator.py` — wires all of the above together |
-| Razorpay integration | `app/razorpay_client.py` — real SDK, or a mock with the same shape |
-| Merchant database | `app/catalog.py` — in-memory product catalog |
+| Data models | `app/schema.py` — Pydantic models for every request, response, and log entry |
+| Product data | `app/recommendation_engine.py` — loads CSV, builds TF-IDF index, handles search/recommendations |
+| Upsell logic | `app/upsell_engine.py` — cross-sell mapping + tiered discount calculations |
+| Catalog API | `app/catalog.py` — thin wrapper over the recommendation engine |
+| Input validation | `app/guardrails.py` — checks stock, SKU validity, actor blocklists, refund ceilings |
+| Spending policy | `app/policy_engine.py` — auto-approval limits, rate limiting per actor |
+| Transaction state | `app/state_manager.py` — order lifecycle tracking with suspend-in-place |
+| Retry logic | `app/retry.py` — bounded retries with backoff, each attempt logged |
+| Audit log | `app/audits.py` — append-only JSONL log |
+| Orchestrator | `app/orchestrator.py` — wires everything together |
+| Payment | `app/razorpay_client.py` — Razorpay SDK wrapper with mock fallback |
+| Per-actor carts | `app/cart.py` — in-memory cart storage keyed by actor |
 
-## 1. Setup
+## Setup
 
 Requires Python 3.10+.
 
 ```bash
 cd agentcart-python
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-`.env` ships with `MOCK_MODE=true`, so everything below works immediately
-with **zero Razorpay signup**. The mock client mirrors the real SDK's
-response shapes, so switching to live test-mode keys later needs no code
-changes.
+The default `.env` has `MOCK_MODE=true`, so everything works out of the box without Razorpay credentials. The mock client returns the same response shapes as the real SDK.
 
-> Note: the `razorpay` package still imports the deprecated `pkg_resources`
-> module, which prints a harmless `UserWarning` on newer `setuptools`.
-> `requirements.txt` pins `setuptools<81` to avoid it entirely.
+> Note: the `razorpay` package uses `pkg_resources` internally, which can print
+> a harmless `UserWarning` on newer setuptools. `requirements.txt` pins
+> `setuptools<81` to suppress it.
 
-## 2. Run it
+## Run it
 
 ```bash
 python -m app.main
 # or: uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000` — a live dashboard: the catalog, a "try it"
-panel to fire a checkout or a refund straight from the browser, the audit
-trail, and the transaction state table, all polling every few seconds.
+Open `http://localhost:8000` — the dashboard has product search, a cart, upsell suggestions panel, checkout flow, audit trail, and settings.
 
-Run the scripted end-to-end test from a second terminal:
+### Quick test
 
+```bash
+# search for products
+curl "http://localhost:8000/catalog/search?q=phone&top_n=3"
+
+# add to cart
+curl -X POST http://localhost:8000/cart \
+  -H "Content-Type: application/json" \
+  -d '{"actor":"test","sku":"AMZN-0001","qty":1}'
+
+# get upsell suggestions
+curl -X POST http://localhost:8000/upsell/suggest \
+  -H "Content-Type: application/json" \
+  -d '{"actor":"test"}'
+
+# checkout
+curl -X POST http://localhost:8000/checkout/cart \
+  -H "Content-Type: application/json" \
+  -d '{"actor":"test"}'
+
+# try a refund over the limit (gets blocked gracefully)
+curl -X POST http://localhost:8000/refund \
+  -H "Content-Type: application/json" \
+  -d '{"actor":"test","payment_id":"pay_fake","amount_rupees":5000}'
+```
+
+There's also a scripted test:
 ```bash
 python tests/test_flow.py
 ```
 
-This lists the catalog, creates a checkout order (allowed), asks for an
-upsell suggestion, attempts a refund within policy (allowed), then
-attempts a refund **over** the ₹2,000 auto-approval limit — which is
-**blocked and logged with a plain-English reason**, not silently dropped
-or crashed. That's the "one failure handled gracefully" requirement, made
-concrete. Refresh the dashboard while it runs to watch it live.
+### Testing retry/failure paths
 
-You can also test by hand:
+Set `MOCK_FAILURE_RATE=0.5` in `.env` and restart. The mock Razorpay client will randomly fail about half the time — you'll see retry entries in the audit trail and graceful blocked responses instead of crashes.
 
-```bash
-curl http://localhost:8000/catalog
+## Razorpay live mode
 
-curl -X POST http://localhost:8000/checkout/order \
-  -H "Content-Type: application/json" \
-  -d '{"actor":"me","sku":"PHONE-CASE-01","qty":1}'
-
-curl -X POST http://localhost:8000/refund \
-  -H "Content-Type: application/json" \
-  -d '{"actor":"me","payment_id":"pay_fake","amount_paise":500000}'
-```
-
-### Trying the retry / error-tracing path
-
-Set `MOCK_FAILURE_RATE=0.5` in `.env` (restart the server) to make the mock
-Razorpay client randomly fail ~half the time. You'll see `retry_trace:*`
-entries appear in the audit trail as it retries with backoff, and — if all
-retries are exhausted — a clean `blocked` result instead of a crash.
-
-## 3. Switch on real Razorpay test mode
-
-1. Sign up / log in at [dashboard.razorpay.com](https://dashboard.razorpay.com).
-2. **Settings → API Keys → Generate Test Key**. Copy the Key ID and Secret.
-3. In `.env`:
+1. Get test keys from [dashboard.razorpay.com](https://dashboard.razorpay.com) → Settings → API Keys
+2. Update `.env`:
    ```
    RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxx
    RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
    MOCK_MODE=false
    ```
-4. Restart. The dashboard header will say "(live Razorpay test mode)".
+3. Restart. The dashboard header will switch to "LIVE RAZORPAY".
 
-`POST /checkout/order` now creates a **real order** in your Razorpay test
-dashboard (Payments → Orders — all test data, no real money moves). To
-actually capture a payment against that order you need Razorpay's
-client-side Checkout.js in a browser (card capture can't happen
-server-side) — Razorpay's test cards (e.g. `4111 1111 1111 1111`, any
-future expiry, any CVV) work there. This prototype covers the agent-facing
-side end to end (create order, verify signature, refund); wiring up
-Checkout.js on a real checkout page is the natural next step.
+## MCP integration (Claude Desktop / Claude Code)
 
-`POST /refund` calls the real Razorpay refund API against a real
-`payment_id` — also fully simulated by Razorpay in test mode.
-
-## 4. Test it as an actual MCP tool
-
-**Quick check with the MCP Inspector** (Node's `npx`, no Claude setup
-needed — the inspector itself is a Node tool even though the server is
-Python):
-
+Test with the MCP Inspector:
 ```bash
-npx @modelcontextprotocol/inspector .venv/bin/python -m app.mcp_server
+npx @modelcontextprotocol/inspector venv/bin/python -m app.mcp_server
 ```
 
-This opens a local web UI where you can call `get_catalog`,
-`create_checkout_order`, `suggest_upsell`, `refund_payment`, and
-`get_audit_trail` directly and see the raw MCP request/response.
-
-**Add it to Claude Desktop or Claude Code:**
-
+Add to Claude Desktop config:
 ```json
 {
   "mcpServers": {
     "agentcart": {
-      "command": "/absolute/path/to/agentcart-python/.venv/bin/python",
+      "command": "/path/to/agentcart-python/venv/bin/python",
       "args": ["-m", "app.mcp_server"],
-      "cwd": "/absolute/path/to/agentcart-python"
+      "cwd": "/path/to/agentcart-python"
     }
   }
 }
 ```
 
-Then ask an agent: *"Check the AgentCart catalog and buy a phone case,
-then try to refund ₹5000 on a fake payment and tell me what happens."*
-You'll see the checkout succeed and the oversized refund come back
-blocked with a clear reason — then check `GET /audit` or the dashboard to
-see both logged.
+Then just chat: *"Search for earbuds under ₹2000"* or *"Add a phone case to my cart and check out"*.
 
+The checkout tool has a built-in upsell agent — it'll automatically suggest add-ons with discounts before completing the order.
 
-## Known limitations (be upfront about these in a demo)
+## Known limitations
 
-- Catalog, state, and rate-limit counters are in-memory and reset on
-  restart — fine for a demo, not a production merchant DB integration.
-- `verify_signature` does a real HMAC check once live keys are set, but
-  there's no browser checkout page included — payment capture itself has
-  to happen client-side with Razorpay Checkout.js.
-- The audit log is a local JSONL file — for production, swap in a real
-  store (Postgres, etc.) behind the same `AuditLogger` interface.
-- Only one "actor" identity model (a string) — a real deployment would
-  authenticate each calling agent (API key, OAuth) rather than trust a
-  self-reported name.
+- Everything is in-memory (catalog, carts, transactions) — resets on restart
+- Actor identity is just a string — no real auth
+- Audit log is a local JSONL file — swap in a database for production

@@ -13,7 +13,7 @@
 <body>
 <h1>Complete Payment</h1>
 <p>Order ID: {{ order_id }}</p>
-<p>Amount: &#8377;{{ "%.2f"|format(amount_paise / 100) }}</p>
+<p>Amount: &#8377;{{ "%.2f"|format(amount_rupees) }}</p>
 
 <button id="pay-btn" onclick="openRazorpay()">Pay Now</button>
 
@@ -23,7 +23,8 @@
 const razorpayKeyId = "{{ razorpay_key_id }}";
 const isMockMode = {{ "true" if mock_mode else "false" }};
 const orderId = "{{ order_id }}";
-const amountPaise = {{ amount_paise }};
+const amountRupees = {{ amount_rupees }};
+const amountPaise = Math.round(amountRupees * 100);
 const actor = "{{ actor }}";
 
 async function postJSON(url, body) {
