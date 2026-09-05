@@ -328,10 +328,12 @@ def suggest_upsell(sku: str = None) -> str:
 
 
 @mcp.tool()
-def refund_payment(payment_id: str, amount_rupees: float) -> dict:
-    """Refund a payment, amount in rupees. Gated: amounts above the
-    auto-approval limit are blocked and logged instead of executed."""
-    return orchestrator.refund_payment(ACTOR, payment_id, amount_rupees).model_dump()
+def refund_payment(order_id: str, sku: str, qty: int = 1) -> dict:
+    """Refund a product from a paid order. Provide the order_id, the SKU to return,
+    and the quantity. The system automatically calculates the correct refund amount
+    based on the price the user actually paid (including any bundle discounts).
+    Gated: amounts above the auto-approval limit are blocked and logged."""
+    return orchestrator.refund_payment(ACTOR, order_id, sku, qty).model_dump()
 
 
 @mcp.tool()
@@ -346,6 +348,43 @@ def get_audit_trail() -> list:
     """Return the full audit trail of every money action attempted so far,
     allowed or blocked, newest first."""
     return orchestrator.get_audit_trail()
+
+
+@mcp.tool()
+def reconcile_orders() -> str:
+    """Run the Agentic Reconciliation Agent. This scans for stuck/pending orders
+    where the user may have paid but the system didn't receive verification
+    (e.g. network timeout). The agent queries Razorpay to check actual payment
+    status and automatically heals any orders that were successfully paid.
+    
+    Use this when:
+    - An order is stuck in 'created' status after the user claims they paid
+    - You want to check if any pending orders have been resolved
+    - You want to demonstrate graceful failure handling"""
+    result = orchestrator.reconcile_stuck_orders()
+    data = result.data or {}
+    
+    reconciled = data.get("reconciled", [])
+    still_pending = data.get("still_pending", [])
+    checked = data.get("checked", 0)
+    
+    output = ["## 🤖 Reconciliation Agent Report\n"]
+    output.append(f"**Orders scanned:** {checked}")
+    
+    if reconciled:
+        output.append(f"\n### ✅ Recovered ({len(reconciled)} orders)")
+        for r in reconciled:
+            output.append(f"- Order `{r['order_id']}` — Payment `{r['payment_id']}` confirmed by Razorpay. Status healed to **paid**.")
+    
+    if still_pending:
+        output.append(f"\n### ⏳ Still Pending ({len(still_pending)} orders)")
+        for oid in still_pending:
+            output.append(f"- Order `{oid}` — No captured payment found yet.")
+    
+    if not reconciled and not still_pending:
+        output.append("\n✅ No stuck orders found. Everything looks healthy!")
+    
+    return "\n".join(output)
 
 @mcp.tool()
 def get_campaign_stats() -> dict:
